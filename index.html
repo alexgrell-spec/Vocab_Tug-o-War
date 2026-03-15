@@ -153,16 +153,17 @@ function RopeArena({ropePos,teamNames,scores,winner}){
   );
 }
 
-function VocabImage({query}){
+function VocabImage({query, onReady}){
   const [src,setSrc]=React.useState(`https://source.unsplash.com/320x200/?${encodeURIComponent(query)}&_=${Math.random()}`);
   const [ok,setOk]=React.useState(false);
+  function handleLoad(){ setOk(true); if(onReady) onReady(); }
+  function handleError(){ setSrc(`https://source.unsplash.com/320x200/?${encodeURIComponent(query.split(" ")[0])}`); if(onReady) onReady(); }
   return(
     <div style={{borderRadius:14,overflow:"hidden",width:"100%",maxWidth:280,margin:"0 auto",
       border:"2px solid #ffffff22",background:"#ffffff0a",minHeight:150,
       display:"flex",alignItems:"center",justifyContent:"center"}}>
-      {!ok&&<div style={{color:"#ffffff44",fontFamily:"Nunito",fontSize:13}}>Bild lädt…</div>}
-      <img src={src} alt={query} onLoad={()=>setOk(true)}
-        onError={()=>setSrc(`https://source.unsplash.com/320x200/?${encodeURIComponent(query.split(" ")[0])}`)}
+      {!ok&&<div style={{color:"#ffffff44",fontFamily:"Nunito",fontSize:13}}>⏸ Bild lädt… Timer pausiert</div>}
+      <img src={src} alt={query} onLoad={handleLoad} onError={handleError}
         style={{width:"100%",objectFit:"cover",display:ok?"block":"none"}}/>
     </div>
   );
@@ -185,7 +186,7 @@ function App(){
   const [lA,setLA]                     = useState("Englisch");
   const [lB,setLB]                     = useState("Deutsch");
   const [teams,setTeams]               = useState(["Team 1","Team 2"]);
-  const [aTypes,setATypes]             = useState(["ab","ba","img","def"]);
+  const [aTypes,setATypes]             = useState(["ab","ba","img"]); // "def" standardmäßig deaktiviert
   const [tsecs,setTsecs]               = useState(10);
   const [apiKey,setApiKey]             = useState(DEFAULT_API_KEY);
   const [showKey,setShowKey]           = useState(false);
@@ -199,6 +200,7 @@ function App(){
   const [sc,setSc]                     = useState([0,0]);
   const [ans,setAns]                   = useState(null);
   const [tl,setTl]                     = useState(10);
+  const [imgReady,setImgReady]         = useState(true); // false when waiting for image to load
   const [winner,setWinner]             = useState(null);
 
   const aRef=useRef(null),tRef=useRef(null),qRef=useRef([]);
@@ -308,15 +310,17 @@ function App(){
     aRef.current=null; setAns(null); setRp(0); setSc([0,0]); setWinner(null);
     const first=await buildQ(pool[0],aTypes,unitVocab);
     setQuestion(first); setO0(shuffle(first.opts)); setO1(shuffle(first.opts));
+    setImgReady(first.type !== "img"); // Bild-Fragen: Timer pausieren bis Bild da
     setTl(tsecs); setPhase("game");
   }
 
   useEffect(()=>{
     if(phase!=="game"||ans||winner)return;
+    if(!imgReady)return; // warte bis Bild geladen
     if(tl<=0){doTO();return;}
     tRef.current=setTimeout(()=>setTl(t=>t-1),1000);
     return()=>clearTimeout(tRef.current);
-  },[phase,tl,ans,winner]);
+  },[phase,tl,ans,winner,imgReady]);
 
   function doTO(){
     if(aRef.current)return; aRef.current="to";
@@ -344,6 +348,7 @@ function App(){
     const nq=await buildQ(next,aTypes,unitVocab);
     setQuestion(nq); setO0(shuffle(nq.opts)); setO1(shuffle(nq.opts));
     setAns(null); aRef.current=null; setTl(tsecs);
+    setImgReady(nq.type !== "img"); // Bild-Fragen: Timer pausieren bis Bild da
   }
 
   // ── Option Button ────────────────────────────────────────────────────────────
@@ -597,7 +602,7 @@ Latein II,silva,Wald,forest trees,Ein großes Waldgebiet.`}</div>
               </div>
 
               <div style={{textAlign:"center",marginBottom:14}}>
-                {question.type==="img"&&<VocabImage query={question.imgQuery}/>}
+                {question.type==="img"&&<VocabImage query={question.imgQuery} onReady={()=>setImgReady(true)}/>}
                 {question.type==="def"&&(
                   <div style={{fontFamily:"Nunito",fontWeight:700,fontSize:16,color:"#e2d9f3",
                     lineHeight:1.5,padding:"10px 16px",background:"#ffffff0a",borderRadius:12,
