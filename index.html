@@ -73,6 +73,7 @@ function parseCSV(text){
       lang_a:row.lang_a||row.a||row.english||row.word||"",
       lang_b:row.lang_b||row.b||row.deutsch||row.translation||"",
       image_hint:row.image_hint||row.bild||row.image||"",
+      emoji:row.emoji||row.emote||"",
       definition:row.definition||row.def||"",
     };
     if(e.lang_a&&e.lang_b)rows.push(e);
@@ -153,18 +154,14 @@ function RopeArena({ropePos,teamNames,scores,winner}){
   );
 }
 
-function VocabImage({query, onReady}){
-  const [src,setSrc]=React.useState(`https://source.unsplash.com/320x200/?${encodeURIComponent(query)}&_=${Math.random()}`);
-  const [ok,setOk]=React.useState(false);
-  function handleLoad(){ setOk(true); if(onReady) onReady(); }
-  function handleError(){ setSrc(`https://source.unsplash.com/320x200/?${encodeURIComponent(query.split(" ")[0])}`); if(onReady) onReady(); }
+function VocabEmoji({emoji}){
   return(
-    <div style={{borderRadius:14,overflow:"hidden",width:"100%",maxWidth:280,margin:"0 auto",
-      border:"2px solid #ffffff22",background:"#ffffff0a",minHeight:150,
-      display:"flex",alignItems:"center",justifyContent:"center"}}>
-      {!ok&&<div style={{color:"#ffffff44",fontFamily:"Nunito",fontSize:13}}>⏸ Bild lädt… Timer pausiert</div>}
-      <img src={src} alt={query} onLoad={handleLoad} onError={handleError}
-        style={{width:"100%",objectFit:"cover",display:ok?"block":"none"}}/>
+    <div style={{width:"100%",maxWidth:200,margin:"0 auto",padding:"16px 0",
+      display:"flex",alignItems:"center",justifyContent:"center",
+      fontSize:110,lineHeight:1,
+      filter:"drop-shadow(0 4px 24px #0008)",
+      animation:"pop .3s ease-out"}}>
+      {emoji}
     </div>
   );
 }
@@ -298,7 +295,7 @@ function App(){
     const q={item,type};
     if(type==="ab"){q.display=item.lang_a;q.field="lang_b";q.opts=genOpts(item,pool,"lang_b");}
     else if(type==="ba"){q.display=item.lang_b;q.field="lang_a";q.opts=genOpts(item,pool,"lang_a");}
-    else if(type==="img"){q.imgQuery=item.image_hint||item.lang_a;q.field="lang_a";q.opts=genOpts(item,pool,"lang_a");}
+    else if(type==="img"){if(!item.emoji){const types2=types.filter(t=>t!=="img");return buildQ(item,types2.length?types2:["ab"],pool);}q.emoji=item.emoji;q.field="lang_a";q.opts=genOpts(item,pool,"lang_a");}
     else{q.definition=item.definition||(await fetchDef(item.lang_a));q.field="lang_a";q.opts=genOpts(item,pool,"lang_a");}
     return q;
   }
@@ -310,7 +307,7 @@ function App(){
     aRef.current=null; setAns(null); setRp(0); setSc([0,0]); setWinner(null);
     const first=await buildQ(pool[0],aTypes,unitVocab);
     setQuestion(first); setO0(shuffle(first.opts)); setO1(shuffle(first.opts));
-    setImgReady(first.type !== "img"); // Bild-Fragen: Timer pausieren bis Bild da
+    setImgReady(true); // Emojis sind sofort da
     setTl(tsecs); setPhase("game");
   }
 
@@ -348,7 +345,7 @@ function App(){
     const nq=await buildQ(next,aTypes,unitVocab);
     setQuestion(nq); setO0(shuffle(nq.opts)); setO1(shuffle(nq.opts));
     setAns(null); aRef.current=null; setTl(tsecs);
-    setImgReady(nq.type !== "img"); // Bild-Fragen: Timer pausieren bis Bild da
+    setImgReady(true); // Emojis sind sofort da
   }
 
   // ── Option Button ────────────────────────────────────────────────────────────
@@ -602,7 +599,7 @@ Latein II,silva,Wald,forest trees,Ein großes Waldgebiet.`}</div>
               </div>
 
               <div style={{textAlign:"center",marginBottom:14}}>
-                {question.type==="img"&&<VocabImage query={question.imgQuery} onReady={()=>setImgReady(true)}/>}
+                {question.type==="img"&&<VocabEmoji emoji={question.emoji}/>}
                 {question.type==="def"&&(
                   <div style={{fontFamily:"Nunito",fontWeight:700,fontSize:16,color:"#e2d9f3",
                     lineHeight:1.5,padding:"10px 16px",background:"#ffffff0a",borderRadius:12,
