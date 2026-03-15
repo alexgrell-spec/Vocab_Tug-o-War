@@ -1,0 +1,672 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>🪢 Tug of War: Vocab</title>
+  <link href="https://fonts.googleapis.com/css2?family=Fredoka+One&family=Nunito:wght@700;800&display=swap" rel="stylesheet"/>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0;}
+    html,body{height:100%;background:#0a1628;}
+    @keyframes pop{0%{transform:scale(1)}50%{transform:scale(1.15)}100%{transform:scale(1)}}
+    @keyframes shake{0%,100%{transform:translateX(0)}25%{transform:translateX(-7px)}75%{transform:translateX(7px)}}
+    @keyframes fadeIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
+    @keyframes glow{0%,100%{box-shadow:0 0 20px #ffe066aa}50%{box-shadow:0 0 40px #ffe066}}
+    @keyframes pulse{0%,100%{transform:scale(1)}50%{transform:scale(1.08)}}
+    @keyframes spin{to{transform:rotate(360deg)}}
+    .opt-btn{transition:transform .12s,filter .12s !important;}
+    .opt-btn:hover:not(:disabled){transform:translateY(-2px) scale(1.04) !important;filter:brightness(1.25) !important;}
+    .opt-btn:active:not(:disabled){transform:scale(.96) !important;}
+    .dd{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23ffe066' d='M6 8L1 3h10z'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 12px center;}
+    ::-webkit-scrollbar{width:5px;}::-webkit-scrollbar-thumb{background:#ffffff33;border-radius:3px;}
+    select option{background:#1a2d40;color:#fff;}
+  </style>
+</head>
+<body><div id="root"></div>
+<script type="text/babel">
+
+// ─── Config ───────────────────────────────────────────────────────────────────
+// Trage hier optional deinen Anthropic API Key ein (für Definitions-Modus)
+// Holen: https://console.anthropic.com
+const DEFAULT_API_KEY = "YOUR_API_KEY_HERE";
+
+// ─── Fallback wenn kein index.json gefunden ───────────────────────────────────
+const FALLBACK = [
+  {unit:"Demo",lang_a:"butterfly",lang_b:"Schmetterling",image_hint:"butterfly insect",definition:"A flying insect with large colourful wings."},
+  {unit:"Demo",lang_a:"umbrella",lang_b:"Regenschirm",image_hint:"umbrella rain",definition:"A device you hold over your head in rain."},
+  {unit:"Demo",lang_a:"library",lang_b:"Bibliothek",image_hint:"library books",definition:"A building where books are kept for borrowing."},
+  {unit:"Demo",lang_a:"journey",lang_b:"Reise",image_hint:"journey travel road",definition:"Travelling from one place to another."},
+  {unit:"Demo",lang_a:"enormous",lang_b:"riesig",image_hint:"enormous huge size",definition:"Extremely large in size or amount."},
+  {unit:"Demo",lang_a:"celebrate",lang_b:"feiern",image_hint:"celebrate party confetti",definition:"To do something enjoyable for a special occasion."},
+  {unit:"Demo",lang_a:"dangerous",lang_b:"gefährlich",image_hint:"danger warning sign",definition:"Something that could hurt you or cause harm."},
+  {unit:"Demo",lang_a:"adventure",lang_b:"Abenteuer",image_hint:"adventure hiking mountains",definition:"An exciting experience involving risk or the unknown."},
+];
+
+const QTYPES=[{id:"ab",emoji:"➡️"},{id:"ba",emoji:"⬅️"},{id:"img",emoji:"🖼"},{id:"def",emoji:"📖"}];
+const TOPTS=[5,10,15,30];
+const WIN=5;
+const C={
+  t0:{bg:"#1a56e8",light:"#7eb3ff",muted:"#1a56e818",border:"#1a56e855"},
+  t1:{bg:"#e83a1a",light:"#ffb07e",muted:"#e83a1a18",border:"#e83a1a55"},
+};
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+function shuffle(a){const b=[...a];for(let i=b.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[b[i],b[j]]=[b[j],b[i]];}return b;}
+function genOpts(c,all,f){const p=shuffle(all.filter(v=>v[f]!==c[f]));return shuffle([c[f],...p.slice(0,3).map(v=>v[f])]);}
+
+function parseCSV(text){
+  const lines=text.trim().split("\n").map(l=>l.trim()).filter(Boolean);
+  if(lines.length<2)return[];
+  const d=lines[0].includes(";")?";":",";
+  const hdrs=lines[0].split(d).map(h=>h.trim().toLowerCase().replace(/^"|"$/g,""));
+  const rows=[];
+  for(let i=1;i<lines.length;i++){
+    const cols=[];let cur="",inQ=false;
+    for(const ch of lines[i]){if(ch==='"'){inQ=!inQ;}else if(ch===d&&!inQ){cols.push(cur.trim());cur="";}else cur+=ch;}
+    cols.push(cur.trim());
+    const row={};hdrs.forEach((h,j)=>{row[h]=(cols[j]||"").replace(/^"|"$/g,"");});
+    const e={
+      unit:row.unit||row.einheit||row.thema||"Unbekannte Unit",
+      lang_a:row.lang_a||row.a||row.english||row.word||"",
+      lang_b:row.lang_b||row.b||row.deutsch||row.translation||"",
+      image_hint:row.image_hint||row.bild||row.image||"",
+      definition:row.definition||row.def||"",
+    };
+    if(e.lang_a&&e.lang_b)rows.push(e);
+  }
+  return rows;
+}
+
+function detectLangs(u){
+  const s=(u||"").toLowerCase();
+  if(s.includes("franz")||s.includes("leçon")||s.includes("lecon")||s.includes("franç"))return["Français","Deutsch"];
+  if(s.includes("latein")||s.includes("latin")||s.includes("lektion"))return["Latein","Deutsch"];
+  if(s.includes("span")||s.includes("español")||s.includes("lección"))return["Español","Deutsch"];
+  if(s.includes("ital"))return["Italiano","Deutsch"];
+  if(s.includes("russ"))return["Русский","Deutsch"];
+  return["Englisch","Deutsch"];
+}
+
+// ─── Components ───────────────────────────────────────────────────────────────
+function TimerRing({timeLeft,total}){
+  const r=24,c=2*Math.PI*r,p=timeLeft/total;
+  const col=timeLeft<=3?"#ef4444":timeLeft<=total*.4?"#f59e0b":"#22c55e";
+  return(
+    <svg width="64" height="64" viewBox="0 0 64 64" style={{animation:timeLeft<=3?"pulse .6s infinite":"none"}}>
+      <circle cx="32" cy="32" r={r} fill="none" stroke="#ffffff11" strokeWidth="5"/>
+      <circle cx="32" cy="32" r={r} fill="none" stroke={col} strokeWidth="5"
+        strokeDasharray={c} strokeDashoffset={c*(1-p)} strokeLinecap="round"
+        transform="rotate(-90 32 32)" style={{transition:"stroke-dashoffset .9s linear,stroke .3s"}}/>
+      <text x="32" y="38" textAnchor="middle" fill={col} fontSize="17" fontFamily="Fredoka One">{timeLeft}</text>
+    </svg>
+  );
+}
+
+function RopeArena({ropePos,teamNames,scores,winner}){
+  const cx=50+ropePos*(30/WIN);
+  function Figs({bx,dir,color,pull}){
+    return [0,1,2].map(i=>{
+      const px=bx+i*(dir===1?-13:13),lean=pull?(dir===1?-17:17):0;
+      return(
+        <g key={i} transform={`translate(${px},55)`}>
+          <g transform={`rotate(${lean},0,0)`} style={{transition:"transform .3s"}}>
+            <rect x="-5" y="-19" width="10" height="13" rx="2" fill={color.bg}/>
+            <circle cx="0" cy="-23" r="5" fill={color.light}/>
+            <line x1="-5" y1="-15" x2="-10" y2="-8" stroke={color.light} strokeWidth="2.5" strokeLinecap="round"/>
+            <line x1="5" y1="-15" x2="10" y2="-8" stroke={color.light} strokeWidth="2.5" strokeLinecap="round"/>
+            <line x1="-3" y1="-6" x2="-4" y2="5" stroke={color.light} strokeWidth="2.5" strokeLinecap="round"/>
+            <line x1="3" y1="-6" x2="4" y2="5" stroke={color.light} strokeWidth="2.5" strokeLinecap="round"/>
+          </g>
+        </g>
+      );
+    });
+  }
+  return(
+    <div style={{background:"#ffffff09",borderRadius:20,overflow:"hidden",paddingBottom:8}}>
+      <svg viewBox="0 0 100 88" style={{width:"100%",height:108}}>
+        <rect x="0" y="63" width="100" height="25" fill="#231005"/>
+        <rect x="0" y="61" width="100" height="4" fill="#5a2e10"/>
+        <rect x="0" y="0" width="16" height="61" fill={C.t0.bg+"44"}/>
+        <rect x="84" y="0" width="16" height="61" fill={C.t1.bg+"44"}/>
+        <text x="8" y="9" textAnchor="middle" fill={C.t0.light} fontSize="4" fontFamily="Fredoka One">{teamNames[0]}</text>
+        <text x="92" y="9" textAnchor="middle" fill={C.t1.light} fontSize="4" fontFamily="Fredoka One">{teamNames[1]}</text>
+        <text x="8" y="17" textAnchor="middle" fill="#fff" fontSize="7" fontFamily="Fredoka One">{scores[0]}</text>
+        <text x="92" y="17" textAnchor="middle" fill="#fff" fontSize="7" fontFamily="Fredoka One">{scores[1]}</text>
+        <line x1="16" y1="53" x2="84" y2="53" stroke="#c8a46e" strokeWidth="2.5" strokeLinecap="round"/>
+        <line x1="50" y1="48" x2="50" y2="58" stroke="#ffe06666" strokeWidth=".8" strokeDasharray="1,1"/>
+        <circle cx={cx} cy="53" r="4" fill="#ffe066" style={{transition:"cx .55s cubic-bezier(.34,1.56,.64,1)"}}/>
+        <g transform={`translate(${cx-50},0)`}><Figs bx={0} dir={1} color={C.t0} pull={!winner}/></g>
+        <g transform={`translate(${cx-50},0)`}><Figs bx={100} dir={-1} color={C.t1} pull={!winner}/></g>
+      </svg>
+      <div style={{display:"flex",gap:4,padding:"0 16px"}}>
+        {Array.from({length:WIN*2+1},(_,i)=>i-WIN).map(v=>(
+          <div key={v} style={{flex:1,height:7,borderRadius:4,
+            border:v===0?"1px solid #ffffff44":"none",
+            background:v===ropePos?"#ffe066":v<ropePos?C.t1.bg+"99":C.t0.bg+"99",
+            transition:"background .4s"}}/>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function VocabImage({query}){
+  const [src,setSrc]=React.useState(`https://source.unsplash.com/320x200/?${encodeURIComponent(query)}&_=${Math.random()}`);
+  const [ok,setOk]=React.useState(false);
+  return(
+    <div style={{borderRadius:14,overflow:"hidden",width:"100%",maxWidth:280,margin:"0 auto",
+      border:"2px solid #ffffff22",background:"#ffffff0a",minHeight:150,
+      display:"flex",alignItems:"center",justifyContent:"center"}}>
+      {!ok&&<div style={{color:"#ffffff44",fontFamily:"Nunito",fontSize:13}}>Bild lädt…</div>}
+      <img src={src} alt={query} onLoad={()=>setOk(true)}
+        onError={()=>setSrc(`https://source.unsplash.com/320x200/?${encodeURIComponent(query.split(" ")[0])}`)}
+        style={{width:"100%",objectFit:"cover",display:ok?"block":"none"}}/>
+    </div>
+  );
+}
+
+// ─── Main App ─────────────────────────────────────────────────────────────────
+function App(){
+  const {useState,useEffect,useRef}=React;
+
+  // data
+  const [allVocab,setAllVocab]         = useState(FALLBACK);
+  const [csvFiles,setCsvFiles]         = useState([]);      // list from index.json
+  const [units,setUnits]               = useState(["Demo"]);
+  const [selUnit,setSelUnit]           = useState("Demo");
+  const [unitVocab,setUnitVocab]       = useState(FALLBACK);
+  const [loadStatus,setLoadStatus]     = useState("loading"); // loading|ok|fallback|error
+  const [loadMsg,setLoadMsg]           = useState("Lade Vokabeln…");
+
+  // settings
+  const [lA,setLA]                     = useState("Englisch");
+  const [lB,setLB]                     = useState("Deutsch");
+  const [teams,setTeams]               = useState(["Team 1","Team 2"]);
+  const [aTypes,setATypes]             = useState(["ab","ba","img","def"]);
+  const [tsecs,setTsecs]               = useState(10);
+  const [apiKey,setApiKey]             = useState(DEFAULT_API_KEY);
+  const [showKey,setShowKey]           = useState(false);
+
+  // game
+  const [phase,setPhase]               = useState("setup");
+  const [question,setQuestion]         = useState(null);
+  const [o0,setO0]                     = useState([]);
+  const [o1,setO1]                     = useState([]);
+  const [rp,setRp]                     = useState(0);
+  const [sc,setSc]                     = useState([0,0]);
+  const [ans,setAns]                   = useState(null);
+  const [tl,setTl]                     = useState(10);
+  const [winner,setWinner]             = useState(null);
+
+  const aRef=useRef(null),tRef=useRef(null),qRef=useRef([]);
+
+  // ── Load index.json then all CSVs ────────────────────────────────────────────
+  useEffect(()=>{
+    async function loadAll(){
+      try {
+        // 1. Load index.json
+        const idxRes = await fetch("./index.json");
+        if(!idxRes.ok) throw new Error("no index.json");
+        const csvPaths = await idxRes.json();
+        setCsvFiles(csvPaths);
+
+        // 2. Load all CSVs in parallel
+        const results = await Promise.allSettled(
+          csvPaths.map(path => fetch(path).then(r=>{ if(!r.ok) throw new Error(path); return r.text(); }))
+        );
+
+        const allRows = [];
+        let loaded=0, failed=0;
+        results.forEach((res,i)=>{
+          if(res.status==="fulfilled"){
+            const rows=parseCSV(res.value);
+            allRows.push(...rows);
+            loaded++;
+          } else {
+            console.warn("CSV nicht geladen:", csvPaths[i]);
+            failed++;
+          }
+        });
+
+        if(allRows.length===0) throw new Error("Keine Vokabeln");
+
+        setAllVocab(allRows);
+        const u=[...new Set(allRows.map(r=>r.unit))];
+        setUnits(u); setSelUnit(u[0]);
+        setLoadStatus("ok");
+        setLoadMsg(`${loaded} CSV${loaded!==1?"s":""} geladen${failed>0?` (${failed} fehlgeschlagen)`:""}`);
+      } catch(e){
+        setLoadStatus("fallback");
+        setLoadMsg("Demo-Modus — lege index.json & vocab/ Ordner an");
+      }
+    }
+    loadAll();
+  },[]);
+
+  // ── Manual CSV upload (additional) ──────────────────────────────────────────
+  function handleFile(e){
+    const f=e.target.files[0]; if(!f) return;
+    const reader=new FileReader();
+    reader.onload=ev=>{
+      const rows=parseCSV(ev.target.result);
+      if(!rows.length){alert("CSV konnte nicht gelesen werden. Bitte Format prüfen.");return;}
+      // Merge with existing
+      setAllVocab(prev=>{
+        const merged=[...prev.filter(r=>r.unit!=="Demo"),...rows];
+        const u=[...new Set(merged.map(r=>r.unit))];
+        setUnits(u); setSelUnit(rows[0].unit);
+        return merged;
+      });
+      setLoadStatus("ok");
+      setLoadMsg(`+ ${f.name} geladen`);
+    };
+    reader.readAsText(f,"UTF-8");
+  }
+
+  // ── Update unit vocab ────────────────────────────────────────────────────────
+  useEffect(()=>{
+    const uv=allVocab.filter(r=>r.unit===selUnit);
+    setUnitVocab(uv.length?uv:allVocab);
+    const [a,b]=detectLangs(selUnit);
+    setLA(a); setLB(b);
+  },[selUnit,allVocab]);
+
+  // ── Fetch definition via Claude API ─────────────────────────────────────────
+  async function fetchDef(word){
+    if(!apiKey||apiKey===DEFAULT_API_KEY) return `Was bedeutet „${word}"?`;
+    try{
+      const r=await fetch("https://api.anthropic.com/v1/messages",{
+        method:"POST",
+        headers:{"Content-Type":"application/json","x-api-key":apiKey,
+          "anthropic-version":"2023-06-01","anthropic-dangerous-direct-browser-access":"true"},
+        body:JSON.stringify({model:"claude-haiku-4-5-20251001",max_tokens:80,
+          messages:[{role:"user",content:`Simple 1-sentence definition of "${word}" for a 12-year-old. Only the definition, no quotes.`}]})
+      });
+      const d=await r.json();
+      return d?.content?.[0]?.text||`Was bedeutet „${word}"?`;
+    }catch{ return `Was bedeutet „${word}"?`; }
+  }
+
+  // ── Build question ───────────────────────────────────────────────────────────
+  async function buildQ(item,types,pool){
+    const type=types[Math.floor(Math.random()*types.length)];
+    const q={item,type};
+    if(type==="ab"){q.display=item.lang_a;q.field="lang_b";q.opts=genOpts(item,pool,"lang_b");}
+    else if(type==="ba"){q.display=item.lang_b;q.field="lang_a";q.opts=genOpts(item,pool,"lang_a");}
+    else if(type==="img"){q.imgQuery=item.image_hint||item.lang_a;q.field="lang_a";q.opts=genOpts(item,pool,"lang_a");}
+    else{q.definition=item.definition||(await fetchDef(item.lang_a));q.field="lang_a";q.opts=genOpts(item,pool,"lang_a");}
+    return q;
+  }
+
+  // ── Game control ─────────────────────────────────────────────────────────────
+  async function startGame(){
+    clearTimeout(tRef.current);
+    const pool=shuffle(unitVocab); qRef.current=pool.slice(1);
+    aRef.current=null; setAns(null); setRp(0); setSc([0,0]); setWinner(null);
+    const first=await buildQ(pool[0],aTypes,unitVocab);
+    setQuestion(first); setO0(shuffle(first.opts)); setO1(shuffle(first.opts));
+    setTl(tsecs); setPhase("game");
+  }
+
+  useEffect(()=>{
+    if(phase!=="game"||ans||winner)return;
+    if(tl<=0){doTO();return;}
+    tRef.current=setTimeout(()=>setTl(t=>t-1),1000);
+    return()=>clearTimeout(tRef.current);
+  },[phase,tl,ans,winner]);
+
+  function doTO(){
+    if(aRef.current)return; aRef.current="to";
+    setAns({team:-1,correct:false,choice:null});
+    setTimeout(()=>adv(rp,qRef.current),1400);
+  }
+
+  function handleAns(team,choice){
+    if(aRef.current||winner)return;
+    clearTimeout(tRef.current);
+    const correct=choice===question.item[question.field];
+    aRef.current={team,correct}; setAns({team,correct,choice});
+    let np=rp; const ns=[...sc];
+    if(correct){np=team===0?rp-1:rp+1;ns[team]+=1;}
+    else{const o=1-team;np=o===0?rp-1:rp+1;ns[o]+=1;}
+    setRp(np); setSc(ns);
+    if(np<=-WIN){setTimeout(()=>setWinner(0),900);return;}
+    if(np>=WIN){setTimeout(()=>setWinner(1),900);return;}
+    setTimeout(()=>adv(np,qRef.current),1400);
+  }
+
+  async function adv(cp,q){
+    if(!q||!q.length){setWinner(cp<0?0:cp>0?1:-1);return;}
+    const next=q[0],rest=q.slice(1); qRef.current=rest;
+    const nq=await buildQ(next,aTypes,unitVocab);
+    setQuestion(nq); setO0(shuffle(nq.opts)); setO1(shuffle(nq.opts));
+    setAns(null); aRef.current=null; setTl(tsecs);
+  }
+
+  // ── Option Button ────────────────────────────────────────────────────────────
+  function OptBtn({opt,team}){
+    const cv=question?.item[question?.field];
+    let bg=team===0?C.t0.muted:C.t1.muted;
+    let border=`2px solid ${team===0?C.t0.border:C.t1.border}`;
+    let anim="";
+    if(ans){
+      if(opt===cv){bg="#22c55e33";border="2px solid #22c55e";anim="pop .4s";}
+      else if(ans.choice===opt&&ans.team===team){bg="#ef444433";border="2px solid #ef4444";anim="shake .4s";}
+    }
+    return(
+      <button className="opt-btn" onClick={()=>handleAns(team,opt)}
+        disabled={!!ans||!!winner}
+        style={{background:bg,border,borderRadius:11,padding:"11px 8px",color:"#fff",
+          fontFamily:"Nunito",fontWeight:800,fontSize:14,
+          cursor:(ans||winner)?"default":"pointer",
+          animation:anim,transition:"background .2s,border .2s",
+          width:"100%",textAlign:"center",lineHeight:1.2}}>
+        {opt}
+      </button>
+    );
+  }
+
+  const ql=(id)=>id==="ab"?`${lA} → ${lB}`:id==="ba"?`${lB} → ${lA}`:id==="img"?"🖼 Bild":"📖 Def.";
+  const statusColors={loading:"#ffffff44",ok:"#22c55e",fallback:"#f59e0b",error:"#ef4444"};
+
+  // ─── RENDER ──────────────────────────────────────────────────────────────────
+  return(
+    <div style={{minHeight:"100vh",
+      background:"linear-gradient(160deg,#0a1628 0%,#1a0a28 50%,#0a1628 100%)",
+      fontFamily:"'Fredoka One','Nunito',sans-serif",
+      display:"flex",flexDirection:"column",alignItems:"center",padding:"12px 10px",gap:10}}>
+
+      {/* ── Header ── */}
+      <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",width:"100%",maxWidth:840}}>
+        <div style={{display:"flex",alignItems:"center",gap:8}}>
+          <span style={{fontSize:24}}>🪢</span>
+          <div>
+            <div style={{fontFamily:"Fredoka One",fontSize:20,color:"#ffe066",lineHeight:1}}>Tug of War: Vocab</div>
+            <div style={{fontSize:11,color:statusColors[loadStatus],fontFamily:"Nunito",fontWeight:700,display:"flex",alignItems:"center",gap:4}}>
+              {loadStatus==="loading"&&<span style={{display:"inline-block",width:8,height:8,border:"2px solid #ffffff44",borderTopColor:"#fff",borderRadius:"50%",animation:"spin .8s linear infinite"}}/>}
+              {loadMsg}
+            </div>
+          </div>
+        </div>
+        <div style={{display:"flex",gap:6,flexWrap:"wrap",justifyContent:"flex-end"}}>
+          {[{p:"setup",i:"⚙️",l:"Setup"},{p:"csv",i:"📂",l:"CSV"}].map(({p,i,l})=>(
+            <button key={p} onClick={()=>setPhase(phase===p?"setup":p)}
+              style={{background:phase===p?"#ffe066":"#ffffff12",color:phase===p?"#1a0a28":"#fff",
+                border:"none",borderRadius:8,padding:"5px 11px",fontFamily:"Nunito",fontWeight:800,fontSize:12,cursor:"pointer"}}>
+              {i} {l}
+            </button>
+          ))}
+          {phase==="game"&&
+            <button onClick={startGame} style={{background:"#ffffff12",color:"#fff",border:"none",borderRadius:8,padding:"5px 11px",fontFamily:"Nunito",fontWeight:800,fontSize:12,cursor:"pointer"}}>
+              🔄 Neu
+            </button>}
+        </div>
+      </div>
+
+      {/* ══ CSV PANEL ══ */}
+      {phase==="csv"&&(
+        <div style={{width:"100%",maxWidth:840,display:"flex",flexDirection:"column",gap:12,animation:"fadeIn .3s"}}>
+
+          {/* Loaded files overview */}
+          {csvFiles.length>0&&(
+            <div style={{background:"#ffffff0a",borderRadius:18,padding:18}}>
+              <div style={{color:"#ffe066",fontFamily:"Fredoka One",fontSize:17,marginBottom:10}}>📁 Geladene Dateien</div>
+              <div style={{display:"flex",flexDirection:"column",gap:6}}>
+                {csvFiles.map((f,i)=>(
+                  <div key={i} style={{display:"flex",alignItems:"center",gap:8,background:"#ffffff09",borderRadius:8,padding:"7px 12px"}}>
+                    <span style={{fontSize:14}}>📄</span>
+                    <span style={{color:"#7eb3ff",fontFamily:"monospace",fontSize:12,flex:1}}>{f}</span>
+                  </div>
+                ))}
+              </div>
+              <div style={{color:"#ffffff44",fontFamily:"Nunito",fontSize:11,marginTop:10}}>
+                Neue Datei hinzufügen: CSV in den <code style={{color:"#7eb3ff"}}>vocab/</code> Ordner legen & in <code style={{color:"#7eb3ff"}}>index.json</code> eintragen
+              </div>
+            </div>
+          )}
+
+          {/* Manual upload */}
+          <div style={{background:"#ffffff0a",borderRadius:18,padding:18}}>
+            <div style={{color:"#ffe066",fontFamily:"Fredoka One",fontSize:17,marginBottom:4}}>📤 CSV manuell hochladen</div>
+            <div style={{color:"#ffffff55",fontFamily:"Nunito",fontSize:12,marginBottom:14}}>
+              Einmalig für diese Session • Komma oder Semikolon • UTF-8
+            </div>
+            <label style={{display:"inline-block",background:"#ffe066",color:"#1a0a28",borderRadius:10,padding:"10px 22px",fontFamily:"Nunito",fontWeight:800,fontSize:14,cursor:"pointer"}}>
+              📁 Datei wählen
+              <input type="file" accept=".csv,.txt" onChange={handleFile} style={{display:"none"}}/>
+            </label>
+          </div>
+
+          {/* Format */}
+          <div style={{background:"#ffffff0a",borderRadius:18,padding:18}}>
+            <div style={{color:"#ffe066",fontFamily:"Fredoka One",fontSize:17,marginBottom:10}}>📋 CSV-Format</div>
+            <div style={{background:"#00000099",borderRadius:10,padding:14,fontFamily:"monospace",fontSize:12,color:"#7eb3ff",overflowX:"auto",whiteSpace:"pre"}}>{`unit,lang_a,lang_b,image_hint,definition
+Englisch Kl.6 – Unit 4: Food,apple,Apfel,apple fruit,A round fruit that is red or green.
+Englisch Kl.6 – Unit 4: Food,bread,Brot,bread bakery,A food made from flour and baked.
+Leçon 2,chien,Hund,dog animal,Un animal domestique fidèle.
+Latein II,silva,Wald,forest trees,Ein großes Waldgebiet.`}</div>
+            <div style={{marginTop:12,display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+              {[["unit","Einheit → erscheint im Dropdown"],["lang_a","Wort Sprache A"],["lang_b","Wort Sprache B"],["image_hint","Bildsuchbegriff (optional)"],["definition","Erklärung (optional)"]].map(([k,v])=>(
+                <div key={k} style={{background:"#ffffff09",borderRadius:8,padding:"8px 10px"}}>
+                  <div style={{color:"#7eb3ff",fontFamily:"monospace",fontSize:12}}>{k}</div>
+                  <div style={{color:"#ffffff77",fontFamily:"Nunito",fontSize:11}}>{v}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* API Key */}
+          <div style={{background:"#ffffff0a",borderRadius:18,padding:18}}>
+            <div style={{color:"#ffe066",fontFamily:"Fredoka One",fontSize:17,marginBottom:8}}>
+              🔑 API Key <span style={{fontSize:12,color:"#ffffff44"}}>(nur für Definitions-Modus)</span>
+            </div>
+            <div style={{display:"flex",gap:8}}>
+              <input value={apiKey===DEFAULT_API_KEY?"":apiKey}
+                onChange={e=>setApiKey(e.target.value||DEFAULT_API_KEY)}
+                type={showKey?"text":"password"} placeholder="sk-ant-..."
+                style={{flex:1,padding:"9px 12px",borderRadius:9,border:"2px solid #ffffff22",background:"#ffffff0f",color:"#fff",fontFamily:"Nunito",fontSize:13,outline:"none"}}/>
+              <button onClick={()=>setShowKey(v=>!v)}
+                style={{background:"#ffffff12",color:"#fff",border:"none",borderRadius:9,padding:"9px 14px",fontFamily:"Nunito",fontWeight:800,fontSize:13,cursor:"pointer"}}>
+                {showKey?"🙈":"👁"}
+              </button>
+            </div>
+            <div style={{color:"#ffffff33",fontSize:11,fontFamily:"Nunito",marginTop:6}}>
+              console.anthropic.com · Ohne Key läuft alles außer dem Definitions-Modus
+            </div>
+          </div>
+
+          <button onClick={()=>setPhase("setup")} style={{background:"#ffe066",color:"#1a0a28",border:"none",borderRadius:12,padding:"12px",fontFamily:"Fredoka One",fontSize:18,cursor:"pointer"}}>
+            ✓ Fertig
+          </button>
+        </div>
+      )}
+
+      {/* ══ SETUP ══ */}
+      {phase==="setup"&&(
+        <div style={{width:"100%",maxWidth:840,display:"flex",flexDirection:"column",gap:12,animation:"fadeIn .3s"}}>
+
+          {/* Unit Dropdown */}
+          <div style={{background:"#ffffff0a",borderRadius:18,padding:18}}>
+            <div style={{color:"#ffe066",fontFamily:"Fredoka One",fontSize:17,marginBottom:10}}>📚 Einheit wählen</div>
+            <select value={selUnit} onChange={e=>setSelUnit(e.target.value)} className="dd"
+              style={{width:"100%",padding:"12px 36px 12px 14px",borderRadius:11,
+                border:"2px solid #ffe06655",background:"#1a2d40",color:"#fff",
+                fontFamily:"Nunito",fontWeight:800,fontSize:15,outline:"none",cursor:"pointer"}}>
+              {units.map(u=><option key={u} value={u}>{u}</option>)}
+            </select>
+            <div style={{color:"#ffffff44",fontFamily:"Nunito",fontSize:12,marginTop:6}}>
+              {unitVocab.length} Vokabeln · <span style={{color:"#ffe066"}}>{lA} ↔ {lB}</span>
+            </div>
+          </div>
+
+          {/* Language labels */}
+          <div style={{background:"#ffffff0a",borderRadius:18,padding:18}}>
+            <div style={{color:"#ffe066",fontFamily:"Fredoka One",fontSize:17,marginBottom:10}}>🌐 Sprachbezeichnungen</div>
+            <div style={{display:"flex",gap:10,alignItems:"center"}}>
+              <input value={lA} onChange={e=>setLA(e.target.value)}
+                style={{flex:1,padding:"9px 12px",borderRadius:9,border:`2px solid ${C.t0.bg}`,background:C.t0.muted,color:"#fff",fontFamily:"Nunito",fontWeight:800,fontSize:14,outline:"none"}}/>
+              <span style={{color:"#ffffff44",fontFamily:"Fredoka One",fontSize:18}}>↔</span>
+              <input value={lB} onChange={e=>setLB(e.target.value)}
+                style={{flex:1,padding:"9px 12px",borderRadius:9,border:`2px solid ${C.t1.bg}`,background:C.t1.muted,color:"#fff",fontFamily:"Nunito",fontWeight:800,fontSize:14,outline:"none"}}/>
+            </div>
+          </div>
+
+          {/* Teams */}
+          <div style={{background:"#ffffff0a",borderRadius:18,padding:18}}>
+            <div style={{color:"#ffe066",fontFamily:"Fredoka One",fontSize:17,marginBottom:10}}>👥 Teams</div>
+            <div style={{display:"flex",gap:10}}>
+              {[0,1].map(t=>(
+                <input key={t} value={teams[t]} onChange={e=>setTeams(n=>n.map((v,i)=>i===t?e.target.value:v))}
+                  style={{flex:1,padding:"10px 14px",borderRadius:10,
+                    border:`2px solid ${t===0?C.t0.bg:C.t1.bg}`,
+                    background:t===0?C.t0.muted:C.t1.muted,
+                    color:"#fff",fontFamily:"Nunito",fontWeight:800,fontSize:16,outline:"none"}}/>
+              ))}
+            </div>
+          </div>
+
+          {/* Question types */}
+          <div style={{background:"#ffffff0a",borderRadius:18,padding:18}}>
+            <div style={{color:"#ffe066",fontFamily:"Fredoka One",fontSize:17,marginBottom:10}}>❓ Fragetypen</div>
+            <div style={{display:"flex",gap:10,flexWrap:"wrap"}}>
+              {QTYPES.map(qt=>{
+                const on=aTypes.includes(qt.id);
+                return(
+                  <button key={qt.id}
+                    onClick={()=>setATypes(a=>on&&a.length>1?a.filter(x=>x!==qt.id):on?a:[...a,qt.id])}
+                    style={{background:on?"#ffe06620":"#ffffff0a",
+                      border:on?"2px solid #ffe066":"2px solid #ffffff22",
+                      borderRadius:12,padding:"10px 16px",cursor:"pointer",
+                      color:on?"#ffe066":"#ffffff55",fontFamily:"Nunito",fontWeight:800,fontSize:13,
+                      textAlign:"center",minWidth:100}}>
+                    <div style={{fontSize:18}}>{qt.emoji}</div>
+                    <div>{ql(qt.id)}</div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Timer */}
+          <div style={{background:"#ffffff0a",borderRadius:18,padding:18}}>
+            <div style={{color:"#ffe066",fontFamily:"Fredoka One",fontSize:17,marginBottom:10}}>⏱ Timer</div>
+            <div style={{display:"flex",gap:10}}>
+              {TOPTS.map(s=>(
+                <button key={s} onClick={()=>setTsecs(s)}
+                  style={{flex:1,background:tsecs===s?"#ffe06620":"#ffffff0a",
+                    border:tsecs===s?"2px solid #ffe066":"2px solid #ffffff22",
+                    borderRadius:12,padding:"12px",cursor:"pointer",
+                    color:tsecs===s?"#ffe066":"#ffffff55",fontFamily:"Fredoka One",fontSize:22}}>
+                  {s}s
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <button onClick={startGame}
+            style={{background:"#ffe066",color:"#1a0a28",border:"none",borderRadius:14,
+              padding:"15px",fontFamily:"Fredoka One",fontSize:22,cursor:"pointer",animation:"glow 2s infinite"}}>
+            ▶ Spiel starten!
+          </button>
+        </div>
+      )}
+
+      {/* ══ GAME ══ */}
+      {phase==="game"&&(
+        <div style={{width:"100%",maxWidth:840,display:"flex",flexDirection:"column",gap:10}}>
+
+          <RopeArena ropePos={rp} teamNames={teams} scores={sc} winner={winner}/>
+
+          <div style={{textAlign:"center"}}>
+            <span style={{background:"#ffffff0a",color:"#ffffff55",borderRadius:8,padding:"3px 12px",fontFamily:"Nunito",fontWeight:700,fontSize:12}}>
+              📚 {selUnit}
+            </span>
+          </div>
+
+          {!winner&&question&&(
+            <div style={{background:"#ffffff0a",borderRadius:18,padding:"14px 16px",animation:"fadeIn .3s"}}>
+              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+                <span style={{background:"#ffe06618",color:"#ffe066",border:"1px solid #ffe06644",borderRadius:8,padding:"3px 10px",fontFamily:"Nunito",fontWeight:800,fontSize:12}}>
+                  {ql(question.type)}
+                </span>
+                <TimerRing timeLeft={tl} total={tsecs}/>
+                <span style={{width:90}}/>
+              </div>
+
+              <div style={{textAlign:"center",marginBottom:14}}>
+                {question.type==="img"&&<VocabImage query={question.imgQuery}/>}
+                {question.type==="def"&&(
+                  <div style={{fontFamily:"Nunito",fontWeight:700,fontSize:16,color:"#e2d9f3",
+                    lineHeight:1.5,padding:"10px 16px",background:"#ffffff0a",borderRadius:12,
+                    border:"1px solid #ffffff1a"}}>
+                    {question.definition}
+                  </div>
+                )}
+                {(question.type==="ab"||question.type==="ba")&&(
+                  <div style={{fontFamily:"Fredoka One",fontSize:38,color:"#fff",letterSpacing:1}}>
+                    {question.display}
+                  </div>
+                )}
+              </div>
+
+              <div style={{display:"grid",gridTemplateColumns:"1fr 3px 1fr",borderRadius:14,overflow:"hidden"}}>
+                <div style={{background:C.t0.muted,padding:12,border:`2px solid ${C.t0.border}`,borderRight:"none",borderRadius:"14px 0 0 14px"}}>
+                  <div style={{color:C.t0.light,fontFamily:"Fredoka One",fontSize:13,marginBottom:8,textAlign:"center"}}>⬅ {teams[0]}</div>
+                  <div style={{display:"flex",flexDirection:"column",gap:7}}>
+                    {o0.map((o,i)=><OptBtn key={i} opt={o} team={0}/>)}
+                  </div>
+                </div>
+                <div style={{background:"#ffffff15"}}/>
+                <div style={{background:C.t1.muted,padding:12,border:`2px solid ${C.t1.border}`,borderLeft:"none",borderRadius:"0 14px 14px 0"}}>
+                  <div style={{color:C.t1.light,fontFamily:"Fredoka One",fontSize:13,marginBottom:8,textAlign:"center"}}>{teams[1]} ➡</div>
+                  <div style={{display:"flex",flexDirection:"column",gap:7}}>
+                    {o1.map((o,i)=><OptBtn key={i} opt={o} team={1}/>)}
+                  </div>
+                </div>
+              </div>
+
+              {ans&&(
+                <div style={{textAlign:"center",marginTop:10,fontFamily:"Fredoka One",fontSize:17,
+                  animation:"fadeIn .2s",
+                  color:ans.team===-1?"#f59e0b":ans.correct?"#22c55e":"#ef4444"}}>
+                  {ans.team===-1
+                    ?"⏰ Zeit abgelaufen!"
+                    :ans.correct
+                      ?`✅ ${teams[ans.team]} ist schneller — Punkt!`
+                      :`❌ Falsch! Richtig: „${question.item[question.field]}"`}
+                </div>
+              )}
+            </div>
+          )}
+
+          {winner!==null&&(
+            <div style={{background:"linear-gradient(135deg,#1a2d40,#2d1a40)",borderRadius:20,padding:30,
+              textAlign:"center",border:"2px solid #ffe066",animation:"glow 2s infinite,fadeIn .5s"}}>
+              <div style={{fontSize:56}}>🏆</div>
+              <div style={{fontFamily:"Fredoka One",fontSize:32,color:"#ffe066",marginBottom:8}}>
+                {winner===-1?"Unentschieden!":`${teams[winner]} gewinnt!`}
+              </div>
+              <div style={{color:"#ffffffaa",fontFamily:"Nunito",fontWeight:700,fontSize:15,marginBottom:22}}>
+                {teams[0]}: {sc[0]} Pkt. &nbsp;|&nbsp; {teams[1]}: {sc[1]} Pkt.
+              </div>
+              <div style={{display:"flex",gap:10,justifyContent:"center"}}>
+                <button onClick={startGame} style={{background:"#ffe066",color:"#1a0a28",border:"none",borderRadius:12,padding:"12px 28px",fontFamily:"Fredoka One",fontSize:20,cursor:"pointer"}}>🔄 Nochmal</button>
+                <button onClick={()=>setPhase("setup")} style={{background:"#ffffff15",color:"#fff",border:"none",borderRadius:12,padding:"12px 28px",fontFamily:"Fredoka One",fontSize:20,cursor:"pointer"}}>⚙️ Setup</button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      <div style={{color:"#ffffff1a",fontFamily:"Nunito",fontSize:11,marginTop:4}}>
+        🪢 Tug of War: Vocab — made with Claude
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+</script></body></html>
